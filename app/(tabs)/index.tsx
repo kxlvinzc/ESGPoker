@@ -18,11 +18,11 @@ export default function HomeScreen() {
 
       <Text style={styles.subtitle}>Opponent's Hand:</Text>
       <View style={styles.hand}>
-        <PokerCard faceDown={true} />
-        <PokerCard faceDown={true} />
-        <PokerCard faceDown={true} />
-        <PokerCard faceDown={true} />
-        <PokerCard faceDown={true} />
+        <PokerCard suit="spades" value="?" faceDown={true} />
+        <PokerCard suit="spades" value="?" faceDown={true} />
+        <PokerCard suit="spades" value="?" faceDown={true} />
+        <PokerCard suit="spades" value="?" faceDown={true} />
+        <PokerCard suit="spades" value="?" faceDown={true} />
       </View>
     </View>
   );
