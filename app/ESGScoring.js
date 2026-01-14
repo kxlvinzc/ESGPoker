@@ -12,6 +12,7 @@ import {
   evaluateHand,
   compareHands
 } from './HandEvaluator';
+import { calculateSidePots } from './ESGGameEngine';
 
 /**
  * Find the nuts (best possible hand) for a given board
@@ -265,42 +266,83 @@ export const calculateShowdownScores = (gameState) => {
 };
 
 /**
- * Determine the winner(s) of the pot
- * Returns array of winners with their share of the pot
+ * Determine the winner(s) of the pot with side pot support
+ * Returns object with main pot and side pots, each with their winners
  */
 export const determineWinners = (gameState) => {
   const scores = calculateShowdownScores(gameState);
-  
+
   if (scores.length === 0) {
-    return [];
+    return { pots: [], totalAwarded: 0 };
   }
-  
-  // Find the highest score
-  const highestScore = scores[0].totalPoints;
-  
-  // Get all players with the highest score
-  const winners = scores.filter(s => s.totalPoints === highestScore);
-  
-  // Calculate pot share for each winner
-  const potShare = gameState.pot / winners.length;
-  
-  return winners.map(winner => ({
-    ...winner,
-    potShare: Math.round(potShare * 100) / 100
-  }));
+
+  // Calculate side pots
+  const pots = calculateSidePots(gameState);
+
+  const potResults = pots.map((pot, potIndex) => {
+    // Get eligible players for this pot
+    const eligibleScores = scores.filter(s =>
+      pot.eligiblePlayerIds.includes(s.playerId)
+    );
+
+    if (eligibleScores.length === 0) {
+      return null;
+    }
+
+    // If uncontested (only 1 player), award directly
+    if (pot.isUncontested) {
+      return {
+        potNumber: potIndex,
+        amount: pot.amount,
+        isMainPot: potIndex === 0,
+        isSidePot: potIndex > 0,
+        winners: [{
+          ...eligibleScores[0],
+          potShare: pot.amount
+        }],
+        isUncontested: true
+      };
+    }
+
+    // Find highest score among eligible players
+    const highestScore = Math.max(...eligibleScores.map(s => s.totalPoints));
+    const potWinners = eligibleScores.filter(s => s.totalPoints === highestScore);
+
+    // Split pot among winners
+    const potShare = pot.amount / potWinners.length;
+
+    return {
+      potNumber: potIndex,
+      amount: pot.amount,
+      isMainPot: potIndex === 0,
+      isSidePot: potIndex > 0,
+      winners: potWinners.map(winner => ({
+        ...winner,
+        potShare: Math.round(potShare * 100) / 100
+      }))
+    };
+  }).filter(p => p !== null);
+
+  const totalAwarded = potResults.reduce((sum, pot) => sum + pot.amount, 0);
+
+  return {
+    pots: potResults,
+    totalAwarded
+  };
 };
 
 /**
- * Get a detailed showdown summary
+ * Get a detailed showdown summary with side pot information
  */
 export const getShowdownSummary = (gameState) => {
   const scores = calculateShowdownScores(gameState);
-  const winners = determineWinners(gameState);
-  
+  const winnerInfo = determineWinners(gameState);
+
   return {
     totalPot: gameState.pot,
     allScores: scores,
-    winners,
+    pots: winnerInfo.pots,
+    totalAwarded: winnerInfo.totalAwarded,
     board1: gameState.board1.revealed,
     board2: gameState.board2.revealed
   };

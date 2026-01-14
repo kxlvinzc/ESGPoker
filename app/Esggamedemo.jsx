@@ -1,21 +1,89 @@
 // ESGGameDemo.jsx - Demo component to test ESG Poker
 
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState, useEffect } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Slider } from 'react-native';
 import { formatCard } from './CardUtils';
-import { GAME_PHASES, initializeGame, playerFold, revealFlop, revealRiver, revealTurn } from './ESGGameEngine';
+import {
+  GAME_PHASES,
+  initializeGame,
+  playerFold,
+  revealFlop,
+  revealRiver,
+  revealTurn,
+  playerCheck,
+  playerCall,
+  playerBet,
+  playerAllIn,
+  calculatePotLimit,
+  getAmountToCall,
+  advanceToNextPlayer,
+  isBettingRoundComplete as checkBettingComplete,
+  startNewBettingRound
+} from './ESGGameEngine';
 import { formatHandEvaluation, formatPointsBreakdown, getShowdownSummary } from './ESGScoring';
 
 export default function ESGGameDemo() {
   const [gameState, setGameState] = useState(null);
   const [showdown, setShowdown] = useState(null);
+  const [betAmount, setBetAmount] = useState(0);
 
   // Initialize a new game
   const startNewGame = () => {
     const playerNames = ['Alice', 'Bob', 'Charlie', 'David', 'Emma', 'Frank', 'Grace'];
-    const newGame = initializeGame(playerNames, 10, 20);
+    const newGame = initializeGame(playerNames, 1, 3); // $1 SB, $3 BB
     setGameState(newGame);
     setShowdown(null);
+    setBetAmount(0);
+  };
+
+  // Check if betting is complete and auto-advance
+  useEffect(() => {
+    if (!gameState || gameState.phase === GAME_PHASES.SHOWDOWN) return;
+
+    const isBettingComplete = checkBettingComplete(gameState);
+    if (isBettingComplete && !gameState.bettingRoundComplete) {
+      // Mark betting as complete and auto-advance after short delay
+      setTimeout(() => {
+        advancePhase();
+      }, 1000);
+    }
+  }, [gameState]);
+
+  // Betting action handlers
+  const handleCheck = () => {
+    if (!gameState) return;
+    let newState = playerCheck(gameState, gameState.activePlayerIndex);
+    newState = advanceToNextPlayer(newState);
+    setGameState(newState);
+  };
+
+  const handleCall = () => {
+    if (!gameState) return;
+    let newState = playerCall(gameState, gameState.activePlayerIndex);
+    newState = advanceToNextPlayer(newState);
+    setGameState(newState);
+  };
+
+  const handleFoldClick = () => {
+    if (!gameState) return;
+    let newState = playerFold(gameState, gameState.activePlayerIndex);
+    newState = advanceToNextPlayer(newState);
+    setGameState(newState);
+  };
+
+  const handleBet = () => {
+    if (!gameState || betAmount === 0) return;
+    let newState = playerBet(gameState, gameState.activePlayerIndex, betAmount);
+    newState = advanceToNextPlayer(newState);
+    setGameState(newState);
+    setBetAmount(0);
+  };
+
+  const handleAllIn = () => {
+    if (!gameState) return;
+    let newState = playerAllIn(gameState, gameState.activePlayerIndex);
+    newState = advanceToNextPlayer(newState);
+    setGameState(newState);
   };
 
   // Advance to next phase
@@ -27,12 +95,15 @@ export default function ESGGameDemo() {
     switch (gameState.phase) {
       case GAME_PHASES.PRE_FLOP:
         newState = revealFlop(newState);
+        newState = startNewBettingRound(newState);
         break;
       case GAME_PHASES.FLOP:
         newState = revealTurn(newState);
+        newState = startNewBettingRound(newState);
         break;
       case GAME_PHASES.TURN:
         newState = revealRiver(newState);
+        newState = startNewBettingRound(newState);
         break;
       case GAME_PHASES.RIVER:
         newState.phase = GAME_PHASES.SHOWDOWN;
@@ -44,13 +115,7 @@ export default function ESGGameDemo() {
     }
 
     setGameState(newState);
-  };
-
-  // Player folds
-  const handleFold = (playerIndex) => {
-    if (!gameState) return;
-    const newState = playerFold(gameState, playerIndex);
-    setGameState(newState);
+    setBetAmount(0);
   };
 
   // Render card
@@ -112,16 +177,6 @@ export default function ESGGameDemo() {
 
         {/* Game Controls */}
         <View style={styles.controls}>
-          {gameState.phase !== GAME_PHASES.SHOWDOWN && (
-            <TouchableOpacity style={styles.button} onPress={advancePhase}>
-              <Text style={styles.buttonText}>
-                {gameState.phase === GAME_PHASES.PRE_FLOP && 'Show Flop'}
-                {gameState.phase === GAME_PHASES.FLOP && 'Show Turn'}
-                {gameState.phase === GAME_PHASES.TURN && 'Show River'}
-                {gameState.phase === GAME_PHASES.RIVER && 'Showdown'}
-              </Text>
-            </TouchableOpacity>
-          )}
           <TouchableOpacity style={styles.buttonSecondary} onPress={startNewGame}>
             <Text style={styles.buttonText}>New Game</Text>
           </TouchableOpacity>
@@ -161,48 +216,112 @@ export default function ESGGameDemo() {
           <Text style={styles.infoText}>
             Pot: ${gameState.pot}
           </Text>
+          {gameState.phase !== GAME_PHASES.SHOWDOWN && (
+            <>
+              <Text style={styles.infoText}>
+                Current Bet: ${gameState.currentBet}
+              </Text>
+              <Text style={styles.infoText}>
+                To Act: {gameState.players[gameState.activePlayerIndex]?.name}
+              </Text>
+            </>
+          )}
         </View>
 
         {/* Players */}
         <Text style={styles.sectionTitle}>Players</Text>
-        {gameState.players.map((player, index) => (
-          <View 
-            key={player.id} 
-            style={[
-              styles.playerBox, 
-              player.isFolded && styles.playerFolded
-            ]}
-          >
-            <View style={styles.playerHeader}>
-              <Text style={styles.playerName}>
-                {player.name} {player.position && `(${player.position})`}
+        {gameState.players.map((player, index) => {
+          const isActivePlayer = index === gameState.activePlayerIndex;
+          const amountToCall = isActivePlayer ? getAmountToCall(gameState, index) : 0;
+          const potLimit = isActivePlayer ? calculatePotLimit(gameState, index) : 0;
+          const minRaise = gameState.currentBet + gameState.lastRaiseAmount;
+
+          return (
+            <View
+              key={player.id}
+              style={[
+                styles.playerBox,
+                player.isFolded && styles.playerFolded,
+                isActivePlayer && gameState.phase !== GAME_PHASES.SHOWDOWN && styles.playerActive
+              ]}
+            >
+              <View style={styles.playerHeader}>
+                <Text style={styles.playerName}>
+                  {player.name} {player.position && `(${player.position})`}
+                  {isActivePlayer && gameState.phase !== GAME_PHASES.SHOWDOWN && ' 👈 YOUR ACTION'}
+                </Text>
+              </View>
+
+              <Text style={styles.playerInfo}>
+                Chips: ${player.chips} | Bet: ${player.bet} | Hand: {player.hand.length} cards
+                {player.cardsOwed > 0 && ` | Owed: ${player.cardsOwed}`}
               </Text>
-              {!player.isFolded && gameState.phase !== GAME_PHASES.SHOWDOWN && (
-                <TouchableOpacity 
-                  style={styles.foldButton} 
-                  onPress={() => handleFold(index)}
-                >
-                  <Text style={styles.foldButtonText}>Fold</Text>
-                </TouchableOpacity>
+
+              {!player.isFolded && (
+                <View style={styles.cardRow}>
+                  {player.hand.map(renderCard)}
+                </View>
+              )}
+
+              {player.isFolded && (
+                <Text style={styles.foldedText}>FOLDED</Text>
+              )}
+
+              {/* Betting Controls for Active Player */}
+              {isActivePlayer && !player.isFolded && gameState.phase !== GAME_PHASES.SHOWDOWN && (
+                <View style={styles.bettingControls}>
+                  <View style={styles.actionButtons}>
+                    {/* Check or Call */}
+                    {amountToCall === 0 ? (
+                      <TouchableOpacity style={styles.actionButton} onPress={handleCheck}>
+                        <Text style={styles.actionButtonText}>Check</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.actionButton} onPress={handleCall}>
+                        <Text style={styles.actionButtonText}>Call ${amountToCall}</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Fold */}
+                    <TouchableOpacity style={styles.foldButton} onPress={handleFoldClick}>
+                      <Text style={styles.foldButtonText}>Fold</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Bet Slider */}
+                  {player.chips > 0 && (
+                    <View style={styles.betSliderContainer}>
+                      <Text style={styles.betLabel}>Bet Amount: ${betAmount || minRaise}</Text>
+                      <Slider
+                        style={styles.betSlider}
+                        minimumValue={Math.max(minRaise, player.bet + 1)}
+                        maximumValue={potLimit}
+                        value={betAmount || minRaise}
+                        onValueChange={(value) => setBetAmount(Math.round(value))}
+                        step={1}
+                        minimumTrackTintColor="#2ECC71"
+                        maximumTrackTintColor="#BDC3C7"
+                        thumbTintColor="#2ECC71"
+                      />
+                      <View style={styles.betButtonsRow}>
+                        <TouchableOpacity style={styles.betButton} onPress={handleBet}>
+                          <Text style={styles.betButtonText}>Bet ${betAmount || minRaise}</Text>
+                        </TouchableOpacity>
+                        {potLimit > player.bet && (
+                          <TouchableOpacity style={styles.potButton} onPress={handleAllIn}>
+                            <Text style={styles.potButtonText}>
+                              {player.chips + player.bet >= potLimit ? `Pot ($${potLimit})` : `All-In ($${player.chips + player.bet})`}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                </View>
               )}
             </View>
-            
-            <Text style={styles.playerInfo}>
-              Chips: ${player.chips} | Hand: {player.hand.length} cards
-              {player.cardsOwed > 0 && ` | Owed: ${player.cardsOwed}`}
-            </Text>
-
-            {!player.isFolded && (
-              <View style={styles.cardRow}>
-                {player.hand.map(renderCard)}
-              </View>
-            )}
-            
-            {player.isFolded && (
-              <Text style={styles.foldedText}>FOLDED</Text>
-            )}
-          </View>
-        ))}
+          );
+        })}
 
         {/* Showdown Results */}
         {showdown && (
@@ -253,16 +372,25 @@ export default function ESGGameDemo() {
               </View>
             ))}
             
-            <View style={styles.winnerBox}>
-              <Text style={styles.winnerText}>
-                {showdown.winners.length === 1 ? 'WINNER' : 'WINNERS'}
-              </Text>
-              {showdown.winners.map(winner => (
-                <Text key={winner.playerId} style={styles.winnerName}>
-                  {winner.playerName} wins ${winner.potShare.toFixed(2)}
+            {/* Pot Winners */}
+            {showdown.pots && showdown.pots.map((pot, potIndex) => (
+              <View key={potIndex} style={styles.winnerBox}>
+                <Text style={styles.winnerText}>
+                  {pot.isMainPot ? '🏆 MAIN POT' : `💰 SIDE POT ${potIndex}`} - ${pot.amount}
                 </Text>
-              ))}
-            </View>
+                {pot.isUncontested ? (
+                  <Text style={styles.winnerName}>
+                    {pot.winners[0].playerName} wins ${pot.amount.toFixed(2)} (uncontested)
+                  </Text>
+                ) : (
+                  pot.winners.map(winner => (
+                    <Text key={winner.playerId} style={styles.winnerName}>
+                      {winner.playerName} wins ${winner.potShare.toFixed(2)}
+                    </Text>
+                  ))
+                )}
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -430,6 +558,77 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  playerActive: {
+    borderWidth: 3,
+    borderColor: '#FFD700',
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+  },
+  bettingControls: {
+    marginTop: 15,
+    padding: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 8,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+  },
+  actionButton: {
+    backgroundColor: '#2ECC71',
+    padding: 12,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  betSliderContainer: {
+    marginTop: 10,
+  },
+  betLabel: {
+    color: '#FFD700',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  betSlider: {
+    width: '100%',
+    height: 40,
+  },
+  betButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 10,
+  },
+  betButton: {
+    backgroundColor: '#3498DB',
+    padding: 12,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  betButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  potButton: {
+    backgroundColor: '#E67E22',
+    padding: 12,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  potButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   showdownSection: {
     marginTop: 20,

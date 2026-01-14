@@ -39,6 +39,7 @@ const createPlayer = (id, name, chips = 1000) => ({
   name,
   chips,
   bet: 0,
+  totalContributed: 0, // Total amount put in pot this hand (for side pots)
   hand: [],
   isActive: true,
   isFolded: false,
@@ -50,48 +51,57 @@ const createPlayer = (id, name, chips = 1000) => ({
 /**
  * Initialize a new ESG poker game
  */
-export const initializeGame = (playerNames, smallBlind = 10, bigBlind = 20) => {
+export const initializeGame = (playerNames, smallBlind = 1, bigBlind = 3) => {
   if (playerNames.length < 2 || playerNames.length > 7) {
     throw new Error('ESG Poker requires 2-7 players');
   }
-  
+
   // Create players
-  const players = playerNames.map((name, index) => 
+  const players = playerNames.map((name, index) =>
     createPlayer(index, name, 1000)
   );
-  
+
   // Assign positions
   const buttonIndex = players.length - 1;
   const sbIndex = 0;
   const bbIndex = 1 % players.length;
-  
+
   players[buttonIndex].position = 'BTN';
   players[sbIndex].position = 'SB';
   players[bbIndex].position = 'BB';
-  
+
+  // Post blinds
+  players[sbIndex].chips -= smallBlind;
+  players[sbIndex].bet = smallBlind;
+  players[sbIndex].totalContributed = smallBlind;
+
+  players[bbIndex].chips -= bigBlind;
+  players[bbIndex].bet = bigBlind;
+  players[bbIndex].totalContributed = bigBlind;
+
   // Create and shuffle deck
   let deck = shuffleDeck(createDeck());
-  
+
   // Deal 6 cards to each player
   const totalCardsForPlayers = players.length * 6;
-  const { dealtCards: playerCards, remainingDeck: deckAfterPlayers } = 
+  const { dealtCards: playerCards, remainingDeck: deckAfterPlayers } =
     dealCards(deck, totalCardsForPlayers);
-  
+
   // Distribute cards to players
   for (let i = 0; i < players.length; i++) {
     players[i].hand = playerCards.slice(i * 6, (i + 1) * 6);
   }
-  
+
   // Deal 2 boards of 5 cards each (face down initially)
-  const { dealtCards: boardCards, remainingDeck: finalDeck } = 
+  const { dealtCards: boardCards, remainingDeck: finalDeck } =
     dealCards(deckAfterPlayers, 10);
-  
+
   const board1 = boardCards.slice(0, 5);
   const board2 = boardCards.slice(5, 10);
-  
+
   // Remaining cards become the Muck Pile
   const muckPile = finalDeck;
-  
+
   return {
     players,
     board1: {
@@ -103,15 +113,17 @@ export const initializeGame = (playerNames, smallBlind = 10, bigBlind = 20) => {
       revealed: [] // Cards revealed so far
     },
     muckPile,
-    pot: 0,
+    pot: smallBlind + bigBlind,
     currentBet: bigBlind,
+    lastRaiseAmount: bigBlind, // For minimum raise calculation
     phase: GAME_PHASES.PRE_FLOP,
     activePlayerIndex: (bbIndex + 1) % players.length, // UTG starts
     buttonIndex,
     smallBlind,
     bigBlind,
-    dealerMessage: 'Pre-flop betting begins',
-    history: []
+    dealerMessage: `Blinds posted: SB $${smallBlind}, BB $${bigBlind}. Pre-flop betting begins.`,
+    history: [],
+    bettingRoundComplete: false
   };
 };
 
@@ -356,12 +368,314 @@ export const resetBettingRound = (gameState) => {
     hasActed: false,
     bet: 0
   }));
-  
+
   return {
     ...gameState,
     players: updatedPlayers,
-    currentBet: 0
+    currentBet: 0,
+    lastRaiseAmount: 0
   };
+};
+
+/**
+ * Get amount player needs to call
+ */
+export const getAmountToCall = (gameState, playerIndex) => {
+  const player = gameState.players[playerIndex];
+  return gameState.currentBet - player.bet;
+};
+
+/**
+ * Calculate pot-limit maximum raise for a player
+ * Formula: (3 × amount_to_call) + current_pot
+ */
+export const calculatePotLimit = (gameState, playerIndex) => {
+  const player = gameState.players[playerIndex];
+  const amountToCall = getAmountToCall(gameState, playerIndex);
+
+  // Max pot raise = (3 × amount to call) + current pot
+  const maxPotRaise = (3 * amountToCall) + gameState.pot;
+
+  // Can't bet more than player has
+  const maxPlayerBet = player.chips + player.bet;
+
+  return Math.min(maxPotRaise, maxPlayerBet);
+};
+
+/**
+ * Player checks (only valid when currentBet = player's bet)
+ */
+export const playerCheck = (gameState, playerIndex) => {
+  const player = gameState.players[playerIndex];
+
+  if (player.isFolded || gameState.activePlayerIndex !== playerIndex) {
+    return gameState;
+  }
+
+  if (gameState.currentBet !== player.bet) {
+    return gameState; // Can't check, must call or fold
+  }
+
+  const updatedPlayers = gameState.players.map((p, i) =>
+    i === playerIndex ? { ...p, hasActed: true } : p
+  );
+
+  return {
+    ...gameState,
+    players: updatedPlayers,
+    dealerMessage: `${player.name} checks`
+  };
+};
+
+/**
+ * Player calls the current bet
+ */
+export const playerCall = (gameState, playerIndex) => {
+  const player = gameState.players[playerIndex];
+
+  if (player.isFolded || gameState.activePlayerIndex !== playerIndex) {
+    return gameState;
+  }
+
+  const amountToCall = getAmountToCall(gameState, playerIndex);
+
+  if (amountToCall === 0) {
+    // No bet to call, should check instead
+    return playerCheck(gameState, playerIndex);
+  }
+
+  // If player can't afford full call, they go all-in
+  const actualCall = Math.min(amountToCall, player.chips);
+
+  const updatedPlayers = gameState.players.map((p, i) =>
+    i === playerIndex
+      ? {
+          ...p,
+          chips: p.chips - actualCall,
+          bet: p.bet + actualCall,
+          totalContributed: p.totalContributed + actualCall,
+          hasActed: true
+        }
+      : p
+  );
+
+  return {
+    ...gameState,
+    players: updatedPlayers,
+    pot: gameState.pot + actualCall,
+    dealerMessage: `${player.name} calls $${actualCall}`
+  };
+};
+
+/**
+ * Player bets/raises to a specific amount
+ */
+export const playerBet = (gameState, playerIndex, totalBetAmount) => {
+  const player = gameState.players[playerIndex];
+
+  if (player.isFolded || gameState.activePlayerIndex !== playerIndex) {
+    return gameState;
+  }
+
+  const amountToCall = getAmountToCall(gameState, playerIndex);
+  const raiseAmount = totalBetAmount - gameState.currentBet;
+
+  // Validate minimum raise (must raise at least the size of last raise)
+  const minRaise = gameState.currentBet + gameState.lastRaiseAmount;
+  if (totalBetAmount < minRaise && player.chips + player.bet > minRaise) {
+    // Not a valid raise (unless going all-in)
+    return gameState;
+  }
+
+  // Validate pot limit
+  const potLimit = calculatePotLimit(gameState, playerIndex);
+  if (totalBetAmount > potLimit) {
+    return gameState; // Exceeds pot limit
+  }
+
+  // Calculate how much player needs to add
+  const amountToAdd = totalBetAmount - player.bet;
+
+  if (amountToAdd > player.chips) {
+    // Can't afford this bet
+    return gameState;
+  }
+
+  const updatedPlayers = gameState.players.map((p, i) => {
+    if (i === playerIndex) {
+      return {
+        ...p,
+        chips: p.chips - amountToAdd,
+        bet: totalBetAmount,
+        totalContributed: p.totalContributed + amountToAdd,
+        hasActed: true
+      };
+    }
+    // Other players who have acted need to act again (except all-in players)
+    if (p.hasActed && p.chips > 0 && !p.isFolded) {
+      return { ...p, hasActed: false };
+    }
+    return p;
+  });
+
+  const isRaise = gameState.currentBet > 0;
+  const actionWord = isRaise ? 'raises to' : 'bets';
+
+  return {
+    ...gameState,
+    players: updatedPlayers,
+    pot: gameState.pot + amountToAdd,
+    currentBet: totalBetAmount,
+    lastRaiseAmount: raiseAmount,
+    dealerMessage: `${player.name} ${actionWord} $${totalBetAmount}`
+  };
+};
+
+/**
+ * Player goes all-in
+ */
+export const playerAllIn = (gameState, playerIndex) => {
+  const player = gameState.players[playerIndex];
+
+  if (player.isFolded || gameState.activePlayerIndex !== playerIndex) {
+    return gameState;
+  }
+
+  if (player.chips === 0) {
+    return gameState; // Already all-in
+  }
+
+  const allInAmount = player.chips + player.bet;
+
+  // Check if this is a call all-in or raise all-in
+  if (allInAmount <= gameState.currentBet) {
+    // Call all-in
+    return playerCall(gameState, playerIndex);
+  } else {
+    // Raise all-in
+    return playerBet(gameState, playerIndex, allInAmount);
+  }
+};
+
+/**
+ * Advance to next active player
+ */
+export const advanceToNextPlayer = (gameState) => {
+  const activePlayers = gameState.players.filter(p => !p.isFolded);
+
+  if (activePlayers.length <= 1) {
+    return gameState;
+  }
+
+  let nextIndex = (gameState.activePlayerIndex + 1) % gameState.players.length;
+
+  // Find next player who hasn't folded
+  while (gameState.players[nextIndex].isFolded) {
+    nextIndex = (nextIndex + 1) % gameState.players.length;
+  }
+
+  return {
+    ...gameState,
+    activePlayerIndex: nextIndex
+  };
+};
+
+/**
+ * Start new betting round for a new street
+ */
+export const startNewBettingRound = (gameState) => {
+  const updatedPlayers = gameState.players.map(p => ({
+    ...p,
+    hasActed: false,
+    bet: 0
+  }));
+
+  // Find first active player after button (small blind position for post-flop)
+  let firstPlayerIndex = (gameState.buttonIndex + 1) % gameState.players.length;
+  while (updatedPlayers[firstPlayerIndex].isFolded &&
+         updatedPlayers.filter(p => !p.isFolded).length > 0) {
+    firstPlayerIndex = (firstPlayerIndex + 1) % gameState.players.length;
+  }
+
+  return {
+    ...gameState,
+    players: updatedPlayers,
+    currentBet: 0,
+    lastRaiseAmount: 0,
+    activePlayerIndex: firstPlayerIndex,
+    bettingRoundComplete: false
+  };
+};
+
+/**
+ * Calculate side pots based on player contributions
+ * Returns array of pots with eligible players
+ */
+export const calculateSidePots = (gameState) => {
+  const activePlayers = gameState.players.filter(p => !p.isFolded);
+
+  if (activePlayers.length === 0) {
+    return [];
+  }
+
+  if (activePlayers.length === 1) {
+    // Only one player, they get everything
+    return [{
+      amount: gameState.pot,
+      eligiblePlayerIds: [activePlayers[0].id]
+    }];
+  }
+
+  // Sort players by total contributed (ascending)
+  const sortedPlayers = [...activePlayers].sort(
+    (a, b) => a.totalContributed - b.totalContributed
+  );
+
+  const pots = [];
+  let remainingContributions = activePlayers.map(p => ({
+    id: p.id,
+    amount: p.totalContributed
+  }));
+
+  for (let i = 0; i < sortedPlayers.length; i++) {
+    const capAmount = sortedPlayers[i].totalContributed;
+
+    if (capAmount === 0) continue;
+
+    // Count how many players contributed at this level
+    const eligiblePlayers = remainingContributions.filter(rc => rc.amount > 0);
+
+    if (eligiblePlayers.length < 2) {
+      // Only one player at this level, award directly (no pot to contest)
+      if (eligiblePlayers.length === 1) {
+        pots.push({
+          amount: eligiblePlayers[0].amount,
+          eligiblePlayerIds: [eligiblePlayers[0].id],
+          isUncontested: true
+        });
+      }
+      break;
+    }
+
+    // Calculate pot amount at this level
+    let potAmount = 0;
+    remainingContributions = remainingContributions.map(rc => {
+      const contribution = Math.min(rc.amount, capAmount);
+      potAmount += contribution;
+      return {
+        ...rc,
+        amount: rc.amount - contribution
+      };
+    });
+
+    // Create pot with eligible players
+    pots.push({
+      amount: potAmount,
+      eligiblePlayerIds: eligiblePlayers.map(p => p.id)
+    });
+  }
+
+  return pots;
 };
 
 export default {
@@ -374,5 +688,14 @@ export default {
   playerFold,
   isBettingRoundComplete,
   getActivePlayerCount,
-  resetBettingRound
+  resetBettingRound,
+  getAmountToCall,
+  calculatePotLimit,
+  playerCheck,
+  playerCall,
+  playerBet,
+  playerAllIn,
+  advanceToNextPlayer,
+  startNewBettingRound,
+  calculateSidePots
 };
