@@ -12,7 +12,7 @@ export default function ESGGameDemo() {
 
   // Initialize a new game
   const startNewGame = () => {
-    const playerNames = ['Alice', 'Bob', 'Charlie'];
+    const playerNames = ['Alice', 'Bob', 'Charlie', 'David', 'Emma', 'Frank', 'Grace'];
     const newGame = initializeGame(playerNames, 10, 20);
     setGameState(newGame);
     setShowdown(null);
@@ -71,13 +71,31 @@ export default function ESGGameDemo() {
     );
   };
 
+  // Render a small card (for showing specific 5-card combinations)
+  const renderSmallCard = (card) => {
+    const suitColors = {
+      hearts: '#E74C3C',
+      diamonds: '#E74C3C',
+      clubs: '#2C3E50',
+      spades: '#2C3E50'
+    };
+
+    return (
+      <View key={card.id} style={[styles.smallCard, { borderColor: suitColors[card.suit] }]}>
+        <Text style={[styles.smallCardText, { color: suitColors[card.suit] }]}>
+          {formatCard(card)}
+        </Text>
+      </View>
+    );
+  };
+
   if (!gameState) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>ESG Poker Demo</Text>
         <Text style={styles.subtitle}>
           Test the game logic{'\n'}
-          3 players, dual boards, 3-point scoring
+          7 players, dual boards, 3-point scoring
         </Text>
         <TouchableOpacity style={styles.button} onPress={startNewGame}>
           <Text style={styles.buttonText}>Start New Game</Text>
@@ -173,10 +191,10 @@ export default function ESGGameDemo() {
               Chips: ${player.chips} | Hand: {player.hand.length} cards
               {player.cardsOwed > 0 && ` | Owed: ${player.cardsOwed}`}
             </Text>
-            
+
             {!player.isFolded && (
               <View style={styles.cardRow}>
-                {player.hand.slice(0, 6).map(renderCard)}
+                {player.hand.map(renderCard)}
               </View>
             )}
             
@@ -202,21 +220,36 @@ export default function ESGGameDemo() {
                 <Text style={styles.scoreBreakdown}>
                   {formatPointsBreakdown(score.breakdown)}
                 </Text>
-                
+
                 <Text style={styles.handLabel}>Board 1:</Text>
                 <Text style={styles.handDesc}>
                   {formatHandEvaluation(score.board1Hand)}
                 </Text>
-                
+                {score.board1Hand && score.board1Hand.cards && (
+                  <View style={styles.cardRow}>
+                    {score.board1Hand.cards.map(renderSmallCard)}
+                  </View>
+                )}
+
                 <Text style={styles.handLabel}>Board 2:</Text>
                 <Text style={styles.handDesc}>
                   {formatHandEvaluation(score.board2Hand)}
                 </Text>
-                
+                {score.board2Hand && score.board2Hand.cards && (
+                  <View style={styles.cardRow}>
+                    {score.board2Hand.cards.map(renderSmallCard)}
+                  </View>
+                )}
+
                 <Text style={styles.handLabel}>Hand Strength:</Text>
                 <Text style={styles.handDesc}>
                   {formatHandEvaluation(score.handStrength)}
                 </Text>
+                {score.handStrength && score.handStrength.usedCards && (
+                  <View style={styles.cardRow}>
+                    {score.handStrength.usedCards.map(renderSmallCard)}
+                  </View>
+                )}
               </View>
             ))}
             
@@ -318,6 +351,18 @@ const styles = StyleSheet.create({
   },
   cardText: {
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  smallCard: {
+    backgroundColor: 'white',
+    borderRadius: 4,
+    padding: 5,
+    minWidth: 35,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  smallCardText: {
+    fontSize: 12,
     fontWeight: 'bold',
   },
   cardBack: {

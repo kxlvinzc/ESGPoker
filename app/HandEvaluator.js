@@ -3,6 +3,28 @@
 import { sortCardsByValue } from './CardUtils';
 
 /**
+ * Convert numeric card value to display name
+ */
+export const valueToDisplayName = (value) => {
+  const names = {
+    2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10',
+    11: 'Jack', 12: 'Queen', 13: 'King', 14: 'Ace'
+  };
+  return names[value] || value.toString();
+};
+
+/**
+ * Convert numeric value to plural form for pairs, trips, etc.
+ */
+export const valueToDisplayNamePlural = (value) => {
+  const names = {
+    2: '2s', 3: '3s', 4: '4s', 5: '5s', 6: '6s', 7: '7s', 8: '8s', 9: '9s', 10: '10s',
+    11: 'Jacks', 12: 'Queens', 13: 'Kings', 14: 'Aces'
+  };
+  return names[value] || value.toString() + 's';
+};
+
+/**
  * Hand rankings (higher is better)
  */
 export const HAND_RANKS = {
@@ -122,7 +144,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.STRAIGHT_FLUSH,
       name: HAND_NAMES[HAND_RANKS.STRAIGHT_FLUSH],
       tiebreakers: [straightHigh],
-      description: `Straight Flush, ${straightHigh} high`
+      description: `${valueToDisplayName(straightHigh)}-high straight flush`
     };
   }
   
@@ -132,7 +154,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.FOUR_OF_KIND,
       name: HAND_NAMES[HAND_RANKS.FOUR_OF_KIND],
       tiebreakers: [countValues[0].value, countValues[1].value],
-      description: `Four of a Kind, ${countValues[0].value}s`
+      description: `Four ${valueToDisplayNamePlural(countValues[0].value)}`
     };
   }
   
@@ -142,7 +164,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.FULL_HOUSE,
       name: HAND_NAMES[HAND_RANKS.FULL_HOUSE],
       tiebreakers: [countValues[0].value, countValues[1].value],
-      description: `Full House, ${countValues[0].value}s over ${countValues[1].value}s`
+      description: `${valueToDisplayNamePlural(countValues[0].value)} over ${valueToDisplayNamePlural(countValues[1].value)}`
     };
   }
   
@@ -153,7 +175,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.FLUSH,
       name: HAND_NAMES[HAND_RANKS.FLUSH],
       tiebreakers: kickers,
-      description: 'Flush'
+      description: `${valueToDisplayName(kickers[0])}-high flush`
     };
   }
   
@@ -163,7 +185,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.STRAIGHT,
       name: HAND_NAMES[HAND_RANKS.STRAIGHT],
       tiebreakers: [straightHigh],
-      description: `Straight, ${straightHigh} high`
+      description: `${valueToDisplayName(straightHigh)}-high straight`
     };
   }
   
@@ -173,7 +195,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.THREE_OF_KIND,
       name: HAND_NAMES[HAND_RANKS.THREE_OF_KIND],
       tiebreakers: [countValues[0].value, countValues[1].value, countValues[2].value],
-      description: `Three of a Kind, ${countValues[0].value}s`
+      description: `Three ${valueToDisplayNamePlural(countValues[0].value)}`
     };
   }
   
@@ -183,7 +205,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.TWO_PAIR,
       name: HAND_NAMES[HAND_RANKS.TWO_PAIR],
       tiebreakers: [countValues[0].value, countValues[1].value, countValues[2].value],
-      description: `Two Pair, ${countValues[0].value}s and ${countValues[1].value}s`
+      description: `${valueToDisplayNamePlural(countValues[0].value)} and ${valueToDisplayNamePlural(countValues[1].value)}`
     };
   }
   
@@ -193,7 +215,7 @@ export const evaluateHand = (cards) => {
       rank: HAND_RANKS.PAIR,
       name: HAND_NAMES[HAND_RANKS.PAIR],
       tiebreakers: [countValues[0].value, countValues[1].value, countValues[2].value, countValues[3].value],
-      description: `Pair of ${countValues[0].value}s`
+      description: `Pair of ${valueToDisplayNamePlural(countValues[0].value)}`
     };
   }
   
@@ -203,7 +225,7 @@ export const evaluateHand = (cards) => {
     rank: HAND_RANKS.HIGH_CARD,
     name: HAND_NAMES[HAND_RANKS.HIGH_CARD],
     tiebreakers: kickers,
-    description: `High Card, ${kickers[0]}`
+    description: `${valueToDisplayName(kickers[0])} high`
   };
 };
 

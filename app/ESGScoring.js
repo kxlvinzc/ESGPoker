@@ -2,29 +2,132 @@
 
 import {
   get5CardCombinations,
-  getBoardCombinations
+  getBoardCombinations,
+  createDeck,
+  getCombinations
 } from './CardUtils';
 import {
   findBestHand,
-  findWinners
+  findWinners,
+  evaluateHand,
+  compareHands
 } from './HandEvaluator';
+
+/**
+ * Find the nuts (best possible hand) for a given board
+ * Returns array of 2-card combinations that make the nuts
+ */
+const findNutsForBoard = (boardCards) => {
+  if (boardCards.length < 3) {
+    return { nutsCombos: [], nutsEvaluation: null };
+  }
+
+  // Get all cards in a full deck
+  const fullDeck = createDeck();
+
+  // Create a set of board card IDs for quick lookup
+  const boardCardIds = new Set(boardCards.map(card => card.id));
+
+  // Get all cards NOT on the board (47 cards)
+  const availableCards = fullDeck.filter(card => !boardCardIds.has(card.id));
+
+  // Generate all possible 2-card combinations from available cards
+  const twoCardCombos = getCombinations(availableCards, 2);
+
+  // Generate all possible 3-card combinations from the board
+  const threeCardCombos = getCombinations(boardCards, 3);
+
+  let bestEvaluation = null;
+  const nutsCombos = [];
+
+  // Try every 2-card combo with every 3-card board combo
+  for (const twoCards of twoCardCombos) {
+    for (const threeCards of threeCardCombos) {
+      const fiveCardHand = [...twoCards, ...threeCards];
+      const evaluation = evaluateHand(fiveCardHand);
+
+      if (!bestEvaluation || compareHands(evaluation, bestEvaluation) > 0) {
+        // Found a better hand - this is the new nuts
+        bestEvaluation = evaluation;
+        nutsCombos.length = 0; // Clear previous nuts combos
+        nutsCombos.push({
+          cards: twoCards,
+          cardIds: twoCards.map(c => c.id).sort().join(',')
+        });
+      } else if (compareHands(evaluation, bestEvaluation) === 0) {
+        // This combo also makes the nuts
+        const comboId = twoCards.map(c => c.id).sort().join(',');
+        // Only add if not already in the list
+        if (!nutsCombos.find(nc => nc.cardIds === comboId)) {
+          nutsCombos.push({
+            cards: twoCards,
+            cardIds: comboId
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    nutsCombos,
+    nutsEvaluation: bestEvaluation
+  };
+};
 
 /**
  * Evaluate a player's best hand for a specific board
  * Returns the best 5-card combination using 2 from hand + 3 from board
  */
-const evaluatePlayerBoard = (playerHand, boardCards) => {
+const evaluatePlayerBoard = (playerHand, boardCards, nutsInfo = null) => {
   if (playerHand.length < 2 || boardCards.length < 3) {
     return null;
   }
-  
+
   const combinations = getBoardCombinations(playerHand, boardCards);
-  
+
   if (combinations.length === 0) {
     return null;
   }
-  
-  return findBestHand(playerHand, combinations);
+
+  // Find best hand from all combinations
+  let bestHand = null;
+  let bestEvaluation = null;
+  let bestHoleCards = null;
+  let bestBoardCards = null;
+
+  // Get all 2-card combinations from player's hand
+  const handCombos = getCombinations(playerHand, 2);
+  // Get all 3-card combinations from board
+  const boardCombos = getCombinations(boardCards, 3);
+
+  for (const holeCards of handCombos) {
+    for (const threeCards of boardCombos) {
+      const fiveCardHand = [...holeCards, ...threeCards];
+      const evaluation = evaluateHand(fiveCardHand);
+
+      if (!bestEvaluation || compareHands(evaluation, bestEvaluation) > 0) {
+        bestHand = fiveCardHand;
+        bestEvaluation = evaluation;
+        bestHoleCards = holeCards;
+        bestBoardCards = threeCards;
+      }
+    }
+  }
+
+  // Check if player has the nuts
+  let hasNuts = false;
+  if (nutsInfo && nutsInfo.nutsCombos.length > 0 && bestHoleCards) {
+    const playerHoleCardIds = bestHoleCards.map(c => c.id).sort().join(',');
+    hasNuts = nutsInfo.nutsCombos.some(nc => nc.cardIds === playerHoleCardIds);
+  }
+
+  return {
+    cards: bestHand,
+    evaluation: bestEvaluation,
+    holeCards: bestHoleCards,
+    boardCards: bestBoardCards,
+    hasNuts
+  };
 };
 
 /**
@@ -34,14 +137,31 @@ const evaluatePlayerHandStrength = (playerHand) => {
   if (playerHand.length < 5) {
     return null;
   }
-  
+
   const combinations = get5CardCombinations(playerHand);
-  
+
   if (combinations.length === 0) {
     return null;
   }
-  
-  return findBestHand(playerHand, combinations);
+
+  // Find the best 5-card hand
+  let bestHand = null;
+  let bestEvaluation = null;
+
+  for (const combo of combinations) {
+    const evaluation = evaluateHand(combo);
+
+    if (!bestEvaluation || compareHands(evaluation, bestEvaluation) > 0) {
+      bestHand = combo;
+      bestEvaluation = evaluation;
+    }
+  }
+
+  return {
+    cards: bestHand,
+    evaluation: bestEvaluation,
+    usedCards: bestHand // The 5 cards used for hand strength
+  };
 };
 
 /**
@@ -50,25 +170,29 @@ const evaluatePlayerHandStrength = (playerHand) => {
  */
 export const calculateShowdownScores = (gameState) => {
   const activePlayers = gameState.players.filter(p => !p.isFolded);
-  
+
   if (activePlayers.length === 0) {
     return [];
   }
-  
+
+  // Find the nuts for both boards
+  const board1Nuts = findNutsForBoard(gameState.board1.revealed);
+  const board2Nuts = findNutsForBoard(gameState.board2.revealed);
+
   // Evaluate all players for Board 1
   const board1Evaluations = activePlayers.map(player => ({
     playerId: player.id,
     playerName: player.name,
-    evaluation: evaluatePlayerBoard(player.hand, gameState.board1.revealed)
+    evaluation: evaluatePlayerBoard(player.hand, gameState.board1.revealed, board1Nuts)
   }));
-  
+
   // Evaluate all players for Board 2
   const board2Evaluations = activePlayers.map(player => ({
     playerId: player.id,
     playerName: player.name,
-    evaluation: evaluatePlayerBoard(player.hand, gameState.board2.revealed)
+    evaluation: evaluatePlayerBoard(player.hand, gameState.board2.revealed, board2Nuts)
   }));
-  
+
   // Evaluate all players for Hand Strength
   const handStrengthEvaluations = activePlayers.map(player => ({
     playerId: player.id,
@@ -189,8 +313,15 @@ export const formatHandEvaluation = (handResult) => {
   if (!handResult || !handResult.evaluation) {
     return 'No hand';
   }
-  
-  return handResult.evaluation.description;
+
+  let description = handResult.evaluation.description;
+
+  // Append "(nuts)" if player has the nuts
+  if (handResult.hasNuts) {
+    description += ' (nuts)';
+  }
+
+  return description;
 };
 
 /**
