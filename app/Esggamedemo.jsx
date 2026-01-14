@@ -1,7 +1,8 @@
 // ESGGameDemo.jsx - Demo component to test ESG Poker
 
 import { useState, useEffect } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Slider } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { formatCard } from './CardUtils';
 import {
   GAME_PHASES,
