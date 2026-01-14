@@ -387,14 +387,15 @@ export const getAmountToCall = (gameState, playerIndex) => {
 
 /**
  * Calculate pot-limit maximum raise for a player
- * Formula: (3 × amount_to_call) + current_pot
+ * Formula: (3 × amount_to_call) + (pot - amount_to_call)
+ * Simplified: (2 × amount_to_call) + pot
  */
 export const calculatePotLimit = (gameState, playerIndex) => {
   const player = gameState.players[playerIndex];
   const amountToCall = getAmountToCall(gameState, playerIndex);
 
-  // Max pot raise = (3 × amount to call) + current pot
-  const maxPotRaise = (3 * amountToCall) + gameState.pot;
+  // Max pot raise = (2 × amount to call) + current pot
+  const maxPotRaise = (2 * amountToCall) + gameState.pot;
 
   // Can't bet more than player has
   const maxPlayerBet = player.chips + player.bet;

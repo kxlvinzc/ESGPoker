@@ -289,10 +289,12 @@ export default function ESGGameDemo() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Bet Slider */}
+                  {/* Bet/Raise Slider */}
                   {player.chips > 0 && (
                     <View style={styles.betSliderContainer}>
-                      <Text style={styles.betLabel}>Bet Amount: ${betAmount || minRaise}</Text>
+                      <Text style={styles.betLabel}>
+                        {gameState.currentBet > 0 ? 'Raise to:' : 'Bet Amount:'} ${betAmount || minRaise}
+                      </Text>
                       <Slider
                         style={styles.betSlider}
                         minimumValue={Math.max(minRaise, player.bet + 1)}
@@ -306,7 +308,9 @@ export default function ESGGameDemo() {
                       />
                       <View style={styles.betButtonsRow}>
                         <TouchableOpacity style={styles.betButton} onPress={handleBet}>
-                          <Text style={styles.betButtonText}>Bet ${betAmount || minRaise}</Text>
+                          <Text style={styles.betButtonText}>
+                            {gameState.currentBet > 0 ? 'Raise to' : 'Bet'} ${betAmount || minRaise}
+                          </Text>
                         </TouchableOpacity>
                         {potLimit > player.bet && (
                           <TouchableOpacity style={styles.potButton} onPress={handleAllIn}>
